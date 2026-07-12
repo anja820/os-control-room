@@ -101,7 +101,8 @@ spawn cpu           # a real CPU-burning process appears in the table
 contend             # two CPU burners pinned to ONE core (so they compete)
 watch               # live %CPU from /proc — both ~50%
 nice <pid> 19       # renice one down; watch again — it drops, the other rises
-policy <pid> rr 20  # switch a process to a REAL-TIME policy via chrt (needs sudo)
+policy <pid> rr 20  # switch a process to a REAL-TIME policy via chrt (privileged)
+caps                # is real-time (rr/fifo) allowed on this machine? show why not
 stop <pid>          # SIGSTOP: freeze it (state T); cont <pid> to resume
 ```
 Verify independently any time: `! top`, `! ps -o pid,stat,ni,%cpu,comm`, or
@@ -128,7 +129,7 @@ graph               # cycle gone: resolved for real
 ## Command reference (`help`)
 
 **Part 1:** `spawn cpu`, `contend`, `race [millions]`, `live`, `watch [secs]`,
-`nice <pid> <n>`, `policy <pid> <other|fifo|rr> [prio]`, `stop <pid>`, `cont <pid>`
+`nice <pid> <n>`, `policy <pid> <other|fifo|rr> [prio]`, `caps`, `stop <pid>`, `cont <pid>`
 **Part 2:** `spawn mem <MB>`, `spawn file [path]`, `spawn zombie`, `page <pid>`,
 `files <pid>`, `deadlock`, `graph`, `proc <pid>`, `kill <pid>`, `term <pid>`
 **Anytime:** `! <command>` (run real Linux), `web [port]` (browser wall display),

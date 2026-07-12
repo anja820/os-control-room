@@ -45,7 +45,7 @@ Type: **`spawn cpu`** → *"There's a real process. Let me prove it —"* → in
 | 2 | `watch` | Live %CPU from /proc: both **~50%** — the scheduler shares the core. |
 | 3 | `nice <pidB> 19` | *"I'll lower one's priority — a real `renice`."* (Use a PID from the table.) |
 | 4 | `watch` | Now **~80% / ~19%** — you SEE the Linux scheduler react. |
-| 5 | `policy <pidA> rr 20` | *"Deeper than nice — a real `chrt` switches the whole scheduler to real-time RR."* (needs sudo; else `policy <pid> other`) |
+| 5 | `policy <pidA> rr 20` | *"Deeper than nice — a real `chrt` switches the whole scheduler to real-time RR."* Privileged: if refused (common on lab machines, even with sudo) type `caps` to show *why*, then `policy <pidA> other`. |
 | 6 | `stop <pidA>` | **SIGSTOP** — freeze it. State becomes **T (stopped)**. |
 | 7 | `cont <pidA>` | **SIGCONT** — it resumes. |
 
@@ -149,6 +149,8 @@ point at it: *"the tool isn't hiding anything; here's the real `renice` /
 | `taskset`/`renice` missing | `sudo apt install -y util-linux` |
 | CPU% shows `—` | run `watch` (needs 2 samples) or press Enter to redraw |
 | renice "permission denied" | only **negative** nice needs sudo; use 1–19 (deprioritize) |
+| `policy rr/fifo` "Operation not permitted" (even with sudo) | locked-down lab machine blocks real-time scheduling for everyone; type `caps` to show why, then use `policy <pid> other` |
+| typed `cat`/`top`/`capsh` → "unknown command" | those are raw Linux commands — prefix them with `!` (e.g. `! cat /proc/<pid>/status`) |
 | A worker won't die | `kill <pid>` (SIGKILL) always works; on exit the tool cleans up all workers |
 | Lost track | type `ps` (or Enter) to redraw the real table |
 
