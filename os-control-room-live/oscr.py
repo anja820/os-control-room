@@ -324,6 +324,11 @@ class ControlRoom:
             ui.color("<- a non-root real-time-priority ceiling (0 = none)", "dim"),
             f"sched_rt_runtime_us: {cap['rt_runtime_us']}   " +
             ui.color("<- -1 = unlimited; 0 = real-time scheduling off for everyone", "dim"),
+            f"cgroup RT budget   : " +
+            (f"{cap['cgroup_rt_runtime_us']}" if cap['cgroup_rt_runtime_us'] is not None
+             else "n/a") + "   " +
+            ui.color("<- your slice's cpu.rt_runtime_us; 0 blocks RR/FIFO even for root",
+                     "dim"),
             "",
             "real-time (rr/fifo) available here : " + yn(cap["allowed"]),
             ui.color("  " + cap["reason"], "grey" if cap["allowed"] else "bright_yellow"),
