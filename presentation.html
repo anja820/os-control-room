@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OS Control Room (LIVE) — Capstone Presentation</title>
+<style>
+  :root{
+    --bg:#0a0f14; --panel:#141d26; --line:#26333f;
+    --fg:#e6edf3; --dim:#8b98a5;
+    --cyan:#39d0d8; --green:#4ec9b0; --yellow:#e3b341; --red:#f2777a; --magenta:#c792ea;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%;}
+  body{background:var(--bg); color:var(--fg);
+    font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; overflow:hidden;}
+  .deck{height:100vh; width:100vw; position:relative;}
+  .slide{position:absolute; inset:0; display:none; flex-direction:column;
+    justify-content:center; padding:5vh 7vw 9vh; animation:fade .35s ease;}
+  .slide.active{display:flex;}
+  @keyframes fade{from{opacity:0; transform:translateY(12px);} to{opacity:1; transform:none;}}
+  .eyebrow{display:flex; gap:.6rem; align-items:center; font-size:1rem; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--cyan); font-weight:700; margin-bottom:1rem;}
+  .badge{background:var(--panel); border:1px solid var(--line); color:var(--dim);
+    border-radius:999px; padding:.15rem .7rem; font-size:.78rem; letter-spacing:.08em;}
+  .live{background:var(--red); color:#fff; border:none; font-weight:700; animation:pulse 2s infinite;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.55;}}
+  h1{font-size:clamp(2rem,5vw,4rem); line-height:1.05; margin-bottom:1rem;}
+  h2{font-size:clamp(1.6rem,3.4vw,2.8rem); line-height:1.12; margin-bottom:1.1rem;}
+  .lead{font-size:clamp(1.1rem,1.9vw,1.5rem); max-width:62ch; line-height:1.5;}
+  .dim{color:var(--dim);}
+  ul{list-style:none; display:flex; flex-direction:column; gap:.6rem; margin-top:.4rem;}
+  li{font-size:clamp(1rem,1.6vw,1.28rem); line-height:1.4; padding-left:1.6rem; position:relative;}
+  li::before{content:"▸"; color:var(--cyan); position:absolute; left:0;}
+  .cmd{font-family:"SF Mono",Consolas,Menlo,monospace; background:#05090d;
+    border:1px solid var(--line); border-left:3px solid var(--green); color:#7ee7c7;
+    border-radius:8px; padding:.5rem .85rem; margin:.28rem 0; display:inline-block;
+    font-size:clamp(.9rem,1.5vw,1.22rem);}
+  .cmdrow{display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; margin:.28rem 0;}
+  .say{border-left:3px solid var(--magenta); background:rgba(199,146,234,.09);
+    padding:.65rem 1rem; border-radius:8px; margin-top:1rem;
+    font-size:clamp(1rem,1.6vw,1.28rem); font-style:italic;}
+  .say b{color:var(--magenta); font-style:normal;}
+  .tags{display:flex; flex-wrap:wrap; gap:.5rem; margin-top:1.1rem;}
+  .tag{background:var(--panel); border:1px solid var(--line); color:var(--dim);
+    border-radius:6px; padding:.25rem .6rem; font-size:.82rem;}
+  .grid{display:grid; grid-template-columns:1fr 1fr; gap:1.1rem 2.2rem; margin-top:.5rem;}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:1rem 1.2rem;}
+  .card h3{font-size:1.08rem; color:var(--cyan); margin-bottom:.35rem;}
+  .card p{color:var(--dim); font-size:.97rem; line-height:1.4;}
+  .term{font-family:"SF Mono",Consolas,Menlo,monospace; background:#05090d;
+    border:1px solid var(--line); border-radius:10px; padding:1rem 1.2rem; margin-top:.6rem;
+    font-size:clamp(.8rem,1.3vw,1.05rem); line-height:1.55; overflow-x:auto;}
+  .term .p{color:var(--magenta);} .term .a{color:var(--dim);} .term .g{color:var(--green);}
+  .term .y{color:var(--yellow);} .term .r{color:var(--red); font-weight:700;} .term .c{color:var(--cyan);}
+  .progress{position:fixed; top:0; left:0; height:4px; background:var(--cyan); transition:width .3s; z-index:10;}
+  .counter{position:fixed; bottom:1rem; right:1.4rem; color:var(--dim); font-size:.9rem; font-family:monospace; z-index:10;}
+  .timer{position:fixed; bottom:1rem; left:1.4rem; z-index:10; font-family:monospace; font-size:1rem;
+    color:var(--dim); background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:.3rem .7rem;}
+  .timer.run{color:var(--green); border-color:var(--green);}
+  .timer.over{color:var(--red); border-color:var(--red);}
+  .hint{position:fixed; bottom:1rem; left:50%; transform:translateX(-50%); color:var(--dim); font-size:.8rem; z-index:10; opacity:.7;}
+  .kbd{background:var(--panel); border:1px solid var(--line); border-radius:5px; padding:.05rem .4rem; font-family:monospace; font-size:.8rem; color:var(--dim);}
+  .demoTitle{color:var(--yellow);}
+</style>
+</head>
+<body>
+<div class="progress" id="progress"></div>
+<div class="deck" id="deck">
+
+  <!-- 1 TITLE -->
+  <section class="slide active">
+    <div class="eyebrow">CM-204 Capstone <span class="badge live">LIVE</span> <span class="badge">~9 min</span></div>
+    <h1>OS Control&nbsp;Room<br><span class="dim" style="font-size:.5em">a live cockpit over REAL Linux processes</span></h1>
+    <p class="lead">Not a simulation. Every process is real, watched live through <b>/proc</b>,
+       controlled with real signals and real scheduling.</p>
+    <div class="tags"><span class="tag">real PIDs</span><span class="tag">real %CPU</span>
+      <span class="tag">real signals</span><span class="tag">real memory</span><span class="tag">real deadlock</span></div>
+    <p class="dim" style="margin-top:2rem;">Press <span class="kbd">→</span> to begin · <span class="kbd">T</span> starts the timer</p>
+  </section>
+
+  <!-- 2 NOT PRE-RECORDED -->
+  <section class="slide">
+    <div class="eyebrow">The promise <span class="badge">0:40</span></div>
+    <h2>Nothing here is pre-recorded</h2>
+    <ul>
+      <li>Every row is a <b>real PID</b> in <span class="cmd" style="padding:.1rem .4rem">/proc</span> — the same source <span class="cmd" style="padding:.1rem .4rem">ps</span> and <span class="cmd" style="padding:.1rem .4rem">top</span> read.</li>
+      <li>Real signals, real <span class="cmd" style="padding:.1rem .4rem">renice</span>, a real <span class="cmd" style="padding:.1rem .4rem">flock</span> deadlock.</li>
+      <li>The tool shows the exact Linux command behind every action — and I can run any command with <span class="cmd" style="padding:.1rem .4rem">!</span>.</li>
+    </ul>
+    <div class="say"><b>🗣 Say:</b> "Please interrupt me. Point at any process and tell me to kill it, pause it, renice it, or show its /proc — I can, because it's all real."</div>
+  </section>
+
+  <!-- 3 THE COCKPIT -->
+  <section class="slide">
+    <div class="eyebrow">The cockpit <span class="badge">0:40</span></div>
+    <h2>Spawn a real process, prove it's real</h2>
+    <div class="cmdrow"><span class="cmd">spawn cpu</span><span class="dim">fork+exec a real worker</span></div>
+    <div class="term">
+<span class="p">oscr(live)&gt;</span> spawn cpu<br>
+<span class="a">   $ python3 worker.py cpu   &amp;</span><br>
+<span class="g">[ ok ]</span> spawned REAL process PID <span class="y">4213</span>  (cpu-burner)<br><br>
+<span class="a"># in a 2nd terminal — same PID, no tricks:</span><br>
+<span class="p">$</span> ps -o pid,stat,%cpu,comm -p <span class="y">4213</span><br>
+  <span class="y">4213</span> R    <span class="g">94.7</span> python3
+    </div>
+    <div class="say"><b>🗣 Say:</b> "The tool shows me the real Linux command it ran. And here it is in plain ps — same PID, really burning CPU."</div>
+  </section>
+
+  <!-- 4 SCHEDULING -->
+  <section class="slide">
+    <div class="eyebrow">Part 1 — Scheduling <span class="badge">1:40</span></div>
+    <h2 class="demoTitle">Real CPU scheduling with renice</h2>
+    <div class="cmdrow"><span class="cmd">contend</span><span class="cmd">watch</span><span class="dim">two burners share ONE core → ~50 / 50</span></div>
+    <div class="cmdrow"><span class="cmd">nice &lt;pid&gt; 19</span><span class="cmd">watch</span><span class="dim">lower one's priority → the split shifts</span></div>
+    <div class="term">
+<span class="a">equal nice   →</span>  A = <span class="g">49%</span>   B = <span class="g">49%</span><br>
+<span class="p">oscr&gt;</span> nice B 19   <span class="a">( $ renice 19 -p B )</span><br>
+<span class="a">after nice19 →</span>  A = <span class="g">80%</span>   B = <span class="r">19%</span>
+    </div>
+    <div class="say"><b>🗣 Say:</b> "I didn't script these numbers — the Linux scheduler produced them. Cross-check in top. Then <b>stop</b>/<b>cont</b> send real SIGSTOP/SIGCONT."</div>
+    <div class="tags"><span class="tag">nice / renice</span><span class="tag">SIGSTOP / SIGCONT</span><span class="tag">taskset (one core)</span></div>
+  </section>
+
+  <!-- 5 RESOURCES INTRO -->
+  <section class="slide">
+    <div class="eyebrow">Part 2 — Resources <span class="badge">0:30</span></div>
+    <h2>Memory &amp; deadlock — one idea</h2>
+    <p class="lead">A process holds <b>resources</b>: memory and locks. The unifying move —
+       <b>one <span class="cmd" style="padding:.1rem .4rem">kill</span> frees both</b>, and breaks a deadlock.</p>
+    <div class="grid" style="margin-top:1rem;">
+      <div class="card"><h3>Memory</h3><p>A real process allocates &amp; touches RAM → real <b>RSS</b> in /proc.</p></div>
+      <div class="card"><h3>Locks / deadlock</h3><p>Two real processes block on real <b>flock</b> locks → a real deadlock.</p></div>
+    </div>
+  </section>
+
+  <!-- 6 MEMORY -->
+  <section class="slide">
+    <div class="eyebrow">Part 2a — Memory <span class="badge">0:50</span></div>
+    <h2 class="demoTitle">Real RAM, watched live</h2>
+    <div class="cmdrow"><span class="cmd">spawn mem 100</span><span class="dim">allocate &amp; TOUCH 100 MB</span></div>
+    <div class="cmdrow"><span class="cmd">proc &lt;pid&gt;</span><span class="dim">read /proc/&lt;pid&gt;/status live</span></div>
+    <div class="term">
+<span class="p">oscr&gt;</span> proc <span class="y">4310</span>   <span class="a">( $ cat /proc/4310/status )</span><br>
+  VmRSS   : <span class="g">102912 kB</span>  <span class="a">(real resident memory)</span><br>
+  state   : S (sleeping)   nice: 0   threads: 1
+    </div>
+    <div class="say"><b>🗣 Say:</b> "Not a made-up number — that's what the kernel reports. Verify: cat /proc/&lt;pid&gt;/status | grep VmRSS."</div>
+  </section>
+
+  <!-- 7 DEADLOCK -->
+  <section class="slide">
+    <div class="eyebrow">Part 2b — Deadlock <span class="badge">1:40</span></div>
+    <h2 class="demoTitle">A REAL deadlock, resolved for real</h2>
+    <div class="cmdrow"><span class="cmd">deadlock</span><span class="cmd">graph</span><span class="dim">two processes lock in opposite order</span></div>
+    <div class="term">
+<span class="y">P4401</span> ── waits for ──▶ <span class="g">P4402</span>  (lock B)<br>
+<span class="y">P4402</span> ── waits for ──▶ <span class="g">P4401</span>  (lock A)<br>
+<span class="r">DEADLOCK: a cycle exists — neither can proceed.</span><br>
+<span class="a"># really blocked in the kernel:</span> wchan = <span class="c">locks_lock_inode_wait</span>
+    </div>
+    <div class="cmdrow" style="margin-top:.5rem;"><span class="cmd">kill &lt;pid&gt;</span><span class="cmd">graph</span><span class="dim">SIGKILL a victim → other unblocks → cycle gone</span></div>
+    <div class="say"><b>🗣 Say:</b> "flock has no auto-detection — this is a genuine deadlock. One real kill frees its lock AND its memory, and the survivor proceeds."</div>
+  </section>
+
+  <!-- 8 LINUX SKILLS -->
+  <section class="slide">
+    <div class="eyebrow">Throughout <span class="badge">0:30</span></div>
+    <h2>Driving real Linux, live</h2>
+    <div class="grid">
+      <div class="card"><h3>Inside the tool</h3><p><span class="cmd" style="padding:.1rem .4rem">! ps</span> · <span class="cmd" style="padding:.1rem .4rem">! top</span> · <span class="cmd" style="padding:.1rem .4rem">! cat /proc/&lt;pid&gt;/status</span> · <span class="cmd" style="padding:.1rem .4rem">! kill -l</span></p></div>
+      <div class="card"><h3>reveal on</h3><p>Every action prints its real command: <span class="cmd" style="padding:.1rem .4rem">kill -STOP</span>, <span class="cmd" style="padding:.1rem .4rem">renice</span> — nothing hidden.</p></div>
+      <div class="card"><h3>2nd terminal</h3><p>Cross-check anything with raw <span class="cmd" style="padding:.1rem .4rem">top</span> / <span class="cmd" style="padding:.1rem .4rem">ps</span> — same PIDs, same numbers.</p></div>
+      <div class="card"><h3>Interruptible</h3><p>Ask me to act on any process — spawn, kill, renice — on the spot.</p></div>
+    </div>
+  </section>
+
+  <!-- 9 MAP -->
+  <section class="slide">
+    <div class="eyebrow">Course topics <span class="badge">0:25</span></div>
+    <h2>CM-204, all with REAL Linux</h2>
+    <ul>
+      <li><b>Processes &amp; states</b> — real R/S/D/T/Z from /proc/&lt;pid&gt;/stat</li>
+      <li><b>CPU scheduling</b> — contend + renice; live %CPU shift on a shared core</li>
+      <li><b>Scheduling policies</b> — real SCHED_OTHER / FIFO / RR via <span class="cmd" style="padding:.1rem .4rem">chrt</span></li>
+      <li><b>Signals</b> — real SIGSTOP / SIGCONT / SIGTERM / SIGKILL</li>
+      <li><b>Memory &amp; paging</b> — real RSS + minor/major page faults from /proc</li>
+      <li><b>Files &amp; descriptors</b> — real open fds from /proc/&lt;pid&gt;/fd (<span class="cmd" style="padding:.1rem .4rem">lsof</span>)</li>
+      <li><b>Concurrency &amp; deadlock</b> — real flock deadlock, detected &amp; killed</li>
+    </ul>
+  </section>
+
+  <!-- 10 QA -->
+  <section class="slide">
+    <div class="eyebrow">Thank you</div>
+    <h1>Questions?</h1>
+    <p class="lead dim">OS Control Room (LIVE) — a cockpit over real Linux processes · CM-204</p>
+    <div class="grid" style="margin-top:1.3rem;">
+      <div class="card"><h3>"Is it really live?"</h3><p>Yes — cross-check any PID in <span class="cmd" style="padding:.1rem .4rem">top</span>. Give me a process to act on.</p></div>
+      <div class="card"><h3>"Real deadlock?"</h3><p>Two real flock locks; both block in <span class="cmd" style="padding:.1rem .4rem">locks_lock_inode_wait</span>. flock has no auto-detect.</p></div>
+      <div class="card"><h3>"Why combine memory + locks?"</h3><p>Both are resources a process holds — one kill frees both.</p></div>
+      <div class="card"><h3>"Your role?"</h3><p>I drive real Linux; the tool just shows /proc and runs the commands I choose.</p></div>
+    </div>
+  </section>
+
+</div>
+
+<div class="counter" id="counter">1 / 10</div>
+<div class="timer" id="timer">⏱ 0:00</div>
+<div class="hint">← / → move · <span class="kbd">T</span> timer · <span class="kbd">R</span> reset · <span class="kbd">F</span> fullscreen</div>
+
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  let i = 0;
+  const counter = document.getElementById('counter');
+  const progress = document.getElementById('progress');
+  function show(n){
+    i = Math.max(0, Math.min(slides.length-1, n));
+    slides.forEach((s,k)=>s.classList.toggle('active', k===i));
+    counter.textContent = (i+1)+' / '+slides.length;
+    progress.style.width = ((i)/(slides.length-1)*100)+'%';
+  }
+  const timerEl = document.getElementById('timer');
+  let secs=0, running=false, tick=null;
+  function fmt(s){return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');}
+  function render(){ timerEl.textContent='⏱ '+fmt(secs);
+    timerEl.classList.toggle('run', running && secs<540);
+    timerEl.classList.toggle('over', secs>=540); }
+  function toggleTimer(){ running=!running;
+    if(running){ tick=setInterval(()=>{secs++;render();},1000);} else { clearInterval(tick);} render(); }
+  function resetTimer(){ clearInterval(tick); running=false; secs=0; render(); }
+  document.addEventListener('keydown',e=>{
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){ show(i+1); e.preventDefault(); }
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){ show(i-1); }
+    else if(e.key==='Home'){ show(0);} else if(e.key==='End'){ show(slides.length-1);}
+    else if(e.key==='t'||e.key==='T'){ toggleTimer(); }
+    else if(e.key==='r'||e.key==='R'){ resetTimer(); }
+    else if(e.key==='f'||e.key==='F'){ if(!document.fullscreenElement) document.documentElement.requestFullscreen(); else document.exitFullscreen(); }
+  });
+  document.getElementById('deck').addEventListener('click',e=>{
+    if(e.clientX > window.innerWidth*0.35) show(i+1); else show(i-1); });
+  show(0); render();
+</script>
+</body>
+</html>
