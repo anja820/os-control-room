@@ -286,8 +286,59 @@ class ControlRoom:
             msg = (out.stderr or out.stdout).strip()
             print(ui.err(f"chrt failed: {msg}"))
             if policy in ("fifo", "rr"):
-                print(ui.info("real-time policies need root — try:  ! sudo chrt "
-                              f"{flag} -p {p} {pid}"))
+                cap = pi.rt_capability()
+                print(ui.info(cap["reason"]))
+                if cap["sudo_may_help"]:
+                    print(ui.info(f"try it as root:  ! sudo chrt {flag} -p {p} {pid}"))
+                else:
+                    print(ui.info("this machine blocks real-time scheduling and sudo "
+                                  "won't change that — see exactly why with:  caps"))
+                print(ui.info(f"the idea still demos live: run  policy {pid} other  "
+                              "(SCHED_OTHER always works), then shift CPU share with "
+                              f"'nice {pid} <n>'."))
+
+    def show_caps(self):
+        """Show whether THIS machine allows real-time scheduling — and why not.
+
+        Setting a real-time SCHED_FIFO/RR policy is a privileged operation, so on
+        a locked-down lab machine 'policy rr/fifo' is refused (often even under
+        sudo). This reads the real capability/rlimit/rt-bandwidth data from the
+        kernel so the refusal becomes a teaching moment, not a broken demo — it's
+        the built-in answer to `capsh --print` / `cat /proc/self/status | grep Cap`."""
+        cap = pi.rt_capability()
+        self._hint("grep Cap /proc/self/status ; ulimit -r ; "
+                   "cat /proc/sys/kernel/sched_rt_runtime_us")
+
+        def yn(b):
+            return ui.color("yes", "bright_green") if b else ui.color("no", "bright_red")
+
+        eff = f"{cap['cap_eff']:016x}" if cap["cap_eff"] is not None else "?"
+        body = [
+            f"running as         : uid {cap['euid']} " +
+            ("(root)" if cap["is_root"] else "(unprivileged user)"),
+            f"CAP_SYS_NICE now   : {yn(cap['has_sys_nice'])}   " +
+            ui.color(f"(CapEff = {eff})", "dim"),
+            f"…in bounding set   : {yn(cap['sys_nice_in_bounding'])}   " +
+            ui.color("<- if 'no', not even sudo can grant it here", "dim"),
+            f"RLIMIT_RTPRIO      : soft={cap['rtprio_soft']} hard={cap['rtprio_hard']}   " +
+            ui.color("<- a non-root real-time-priority ceiling (0 = none)", "dim"),
+            f"sched_rt_runtime_us: {cap['rt_runtime_us']}   " +
+            ui.color("<- -1 = unlimited; 0 = real-time scheduling off for everyone", "dim"),
+            f"cgroup RT budget   : " +
+            (f"{cap['cgroup_rt_runtime_us']}" if cap['cgroup_rt_runtime_us'] is not None
+             else "n/a") + "   " +
+            ui.color("<- your slice's cpu.rt_runtime_us; 0 blocks RR/FIFO even for root",
+                     "dim"),
+            "",
+            "real-time (rr/fifo) available here : " + yn(cap["allowed"]),
+            ui.color("  " + cap["reason"], "grey" if cap["allowed"] else "bright_yellow"),
+        ]
+        print(ui.panel("REAL-TIME SCHEDULING PERMISSIONS  "
+                       "(why 'policy rr/fifo' may be refused)", body))
+        if not cap["allowed"]:
+            print(ui.color("  teaching point: real-time scheduling is a PRIVILEGED "
+                           "operation the kernel guards. SCHED_OTHER (normal) and 'nice' "
+                           "still work — demo them with:  policy <pid> other", "dim"))
 
     def show_page(self, pid):
         """Show REAL page-fault counters and resident memory for a process."""
@@ -688,6 +739,7 @@ COMMANDS  (everything here acts on REAL processes / real Linux)
    watch [secs]          same, for a fixed number of seconds (default 4)
    nice <pid> <n>        renice a process (higher n = lower priority = less CPU)
    policy <pid> <p> [pr] set REAL scheduler policy via chrt (p = other|fifo|rr)
+   caps                  can this machine do real-time (rr/fifo)? show why/why not
    stop <pid>            SIGSTOP  (pause a real process)
    cont <pid>            SIGCONT  (resume it)
 
@@ -732,13 +784,15 @@ def boot():
         ("taskset (core pinning)", "ok" if shutil.which("taskset")
          else "missing — sudo apt install util-linux"),
         ("chrt (scheduler policies)", "ok" if shutil.which("chrt") else "missing"),
+        ("real-time (rr/fifo) policy", "available" if pi.rt_capability()["allowed"]
+         else "restricted here — type 'caps'"),
         ("signal console", "armed"),
         ("worker binary", "worker.py ready"),
     ]
     for name, res in checks:
         pause(0.12)
         dots = "." * max(30 - len(name), 2)
-        good = "missing" not in res and "MISSING" not in res
+        good = not any(w in res for w in ("missing", "MISSING", "restricted"))
         print(f"      {name} {ui.color(dots, 'grey')} "
               + ui.color(res, "bright_green" if good else "bright_yellow"))
     pause(0.25)
@@ -819,6 +873,8 @@ def main():
             elif cmd == "policy":
                 cr.set_policy(int(args[0]), args[1].lower(),
                               int(args[2]) if len(args) > 2 else 10)
+            elif cmd == "caps":
+                cr.show_caps()
             elif cmd == "stop":
                 cr.signal(int(args[0]), signal.SIGSTOP, "SIGSTOP", f"kill -STOP {args[0]}")
             elif cmd == "cont":
@@ -842,6 +898,11 @@ def main():
                 print(ui.ok(f"reveal-cmd {'on' if cr.reveal else 'off'}"))
             elif cmd in ("sh", "shell"):
                 cr.shell(" ".join(args))
+            elif shutil.which(cmd):
+                # They typed a real Linux command (e.g. `capsh`, `cat`, `top`)
+                # without the `!` prefix the tool needs to run it.
+                print(ui.err(f"'{cmd}' is a Linux command — run it with '!' in "
+                             f"front:  ! {line}"))
             else:
                 print(ui.err(f"unknown command '{cmd}' — type 'help'"))
         except (IndexError, ValueError):

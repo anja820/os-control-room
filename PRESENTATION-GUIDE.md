@@ -109,8 +109,12 @@ scheduler. `policy` switches **which scheduler** the kernel uses at all — I ju
 moved it onto a real-time policy with `chrt`, and `/proc` confirms it."*
 **Cross-check:** `chrt -p <pid>` shows the same policy.
 
-> Real-time policies need root — if it refuses, run the `! sudo chrt …` line the
-> tool prints, or demo `policy <pid> other` (no sudo needed).
+> Real-time policies are privileged. On many lab machines they're refused **even
+> with `sudo`** (an unprivileged container drops `CAP_SYS_NICE`, or real-time
+> bandwidth is disabled). Don't fight it — turn it into a lesson: type **`caps`**
+> to *show* exactly why the kernel blocks RR/FIFO here, then demo `policy <pid>
+> other` (always works) and shift CPU share with `nice`. If the tool says sudo
+> *might* help, it'll print the `! sudo chrt …` line to try.
 
 ### DEMO C — Real memory & page faults
 
@@ -237,6 +241,7 @@ Every live panel maps one-to-one onto a standard tool — run these to prove it:
 | `web [port]` | browser wall-display of the same /proc data (projector) |
 | `nice <pid> <n>` | renice (higher n = lower priority = less CPU) |
 | `policy <pid> <other\|fifo\|rr> [prio]` | set the real scheduler policy via `chrt` |
+| `caps` | show whether this machine allows real-time (rr/fifo) scheduling, and why not |
 | `stop` / `cont` / `term` / `kill <pid>` | SIGSTOP / SIGCONT / SIGTERM / SIGKILL |
 | `proc <pid>` | live `/proc/<pid>`: state, RSS, faults, policy, wchan |
 | `page <pid>` | real minor/major page faults + RSS |
@@ -312,8 +317,11 @@ split is why nothing here can be faked."*
 - **CPU% shows `—`?** Run `watch` (it needs two samples a second apart) or press
   Enter to redraw.
 - **renice "permission denied"?** Only *negative* nice needs sudo; use 1–19.
-- **`policy fifo/rr` refused?** Real-time policies need root — run the `! sudo
-  chrt …` line the tool prints, or demo `policy <pid> other`.
+- **`policy fifo/rr` refused (even with `sudo`)?** Expected on locked-down lab
+  machines — real-time scheduling is a privileged operation the environment
+  blocks for everyone. Type `caps` to show *why* (CAP_SYS_NICE / RT bandwidth),
+  then demo `policy <pid> other` (always works). Only try `! sudo chrt …` if
+  `caps`/the tool says root might help.
 - **A worker won't die?** `kill <pid>` (SIGKILL) always works; on `exit` the tool
   cleans up everything it spawned.
 - **Lost track mid-demo?** Type `ps` (or press Enter) to redraw the real table.

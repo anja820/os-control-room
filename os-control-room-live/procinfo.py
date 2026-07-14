@@ -10,9 +10,14 @@ because it reads the very same source those tools read: /proc/<pid>/stat and
 
 import os
 import time
+import resource
 
 CLK_TCK = os.sysconf("SC_CLK_TCK")          # clock ticks per second (usually 100)
 PAGE_SIZE = os.sysconf("SC_PAGE_SIZE")
+
+# Linux capability bit for changing scheduling policy/priority (setting a
+# real-time SCHED_FIFO/RR policy needs it, or a non-zero RLIMIT_RTPRIO).
+CAP_SYS_NICE = 23
 
 # Human-readable meaning of the single-letter state in /proc/<pid>/stat.
 STATE_MEANING = {
@@ -41,6 +46,136 @@ SCHED_POLICY = {
 def alive(pid):
     """True if a process with this pid currently exists."""
     return os.path.isdir(f"/proc/{pid}")
+
+
+def _cap_mask(field):
+    """Read a capability bitmask (hex) from /proc/self/status, e.g. 'CapEff'."""
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith(field + ":"):
+                    return int(line.split()[1], 16)
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def _read_int(path):
+    try:
+        with open(path) as f:
+            return int(f.read().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def _cgroup_rt_runtime():
+    """Best-effort: the real-time bandwidth allocated to THIS process's cpu cgroup.
+
+    Even when the system-wide sched_rt_runtime_us is non-zero, a task whose cpu
+    cgroup (e.g. a systemd user slice, or a container) has cpu.rt_runtime_us == 0
+    cannot be given a real-time policy — and that limit binds root too, which is
+    why `sudo chrt --rr` can still fail with EPERM on a lab machine.
+
+    Returns (value, note):
+      value : the cgroup's cpu.rt_runtime_us (0 means RT is disallowed for it),
+              or None if it couldn't be determined.
+      note  : a short human explanation when value is None/blocking.
+    """
+    try:
+        with open("/proc/self/cgroup") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return None, ""
+    # cgroup v1: locate the cpu controller's path (e.g. "4:cpu,cpuacct:/user.slice").
+    for ln in lines:
+        parts = ln.split(":", 2)
+        if len(parts) == 3 and "cpu" in parts[1].split(","):
+            for base in ("/sys/fs/cgroup/cpu,cpuacct", "/sys/fs/cgroup/cpu"):
+                val = _read_int(os.path.join(base, parts[2].lstrip("/"),
+                                             "cpu.rt_runtime_us"))
+                if val is not None:
+                    return val, ("this cgroup gets no real-time bandwidth "
+                                 "(cpu.rt_runtime_us = 0)" if val == 0 else "")
+            return None, ""
+    # Pure cgroup v2 ("0::/…"): there is no cpu.rt_runtime_us interface file, and
+    # user slices usually cannot run real-time tasks at all — even via sudo.
+    for ln in lines:
+        if ln.startswith("0::"):
+            return None, ("cgroup v2 user slice — real-time scheduling is normally "
+                          "unavailable here (no cpu.rt_runtime_us to grant), even to root")
+    return None, ""
+
+
+def rt_capability():
+    """Can THIS process (and the `chrt` it spawns) set a REAL-TIME policy?
+
+    Setting SCHED_FIFO/RR is a privileged operation. It needs BOTH:
+      * permission — CAP_SYS_NICE in the effective set, or a non-zero
+        RLIMIT_RTPRIO ceiling for an unprivileged user; and
+      * real-time bandwidth — the kernel's sched_rt_runtime_us must not be 0.
+
+    On locked-down lab machines / unprivileged containers CAP_SYS_NICE is
+    stripped from the *bounding* set, so no process there can ever hold it —
+    which is why `policy rr/fifo` is refused even under `sudo`. This reads the
+    real /proc + rlimit data so the tool can explain exactly what's blocking it
+    instead of blindly telling the user to try sudo.
+    """
+    euid = os.geteuid()
+    cap_eff = _cap_mask("CapEff")
+    cap_bnd = _cap_mask("CapBnd")
+    has_nice = bool(cap_eff is not None and (cap_eff >> CAP_SYS_NICE) & 1)
+    # If we can't read the bounding set, assume the capability could exist.
+    in_bounding = cap_bnd is None or bool((cap_bnd >> CAP_SYS_NICE) & 1)
+    try:
+        rtprio_soft, rtprio_hard = resource.getrlimit(resource.RLIMIT_RTPRIO)
+    except (ValueError, OSError, AttributeError):
+        rtprio_soft = rtprio_hard = None
+    rt_runtime = _read_int("/proc/sys/kernel/sched_rt_runtime_us")
+    rt_disabled = rt_runtime == 0
+    cgroup_rt, cgroup_note = _cgroup_rt_runtime()
+    # The cgroup blocks RT if it explicitly grants 0 bandwidth (cgroup v1) or is a
+    # cgroup-v2 user slice with no way to grant it (cgroup_rt is None + a note).
+    cgroup_blocks = (cgroup_rt == 0) or (cgroup_rt is None and bool(cgroup_note))
+
+    # -1 means "unlimited" for an rlimit; treat any non-zero hard limit as usable.
+    has_rtprio = rtprio_hard not in (None, 0)
+    allowed = (has_nice or has_rtprio) and not rt_disabled and not cgroup_blocks
+    # Could `sudo` (becoming root) rescue it? Only if nothing that also binds root
+    # (global RT off, or the cgroup's RT budget) is in the way, AND the capability
+    # still exists in the bounding set for root to hold.
+    sudo_may_help = (not allowed and not rt_disabled and not cgroup_blocks
+                     and in_bounding and euid != 0)
+
+    if allowed:
+        reason = "real-time policies (fifo/rr) are permitted here"
+    elif rt_disabled:
+        reason = ("real-time bandwidth is disabled (sched_rt_runtime_us = 0) — the "
+                  "kernel refuses RR/FIFO for EVERY process, even root/sudo")
+    elif cgroup_blocks:
+        reason = (cgroup_note + " — the kernel refuses RR/FIFO for every task in it, "
+                  "even root/sudo, no matter the system-wide budget (typical of a "
+                  "systemd user slice / container on a lab machine)")
+    elif not in_bounding:
+        reason = ("CAP_SYS_NICE is stripped from this environment's capability bounding "
+                  "set — no process here can gain it, so sudo can't help either "
+                  "(typical of an unprivileged container / locked-down lab machine)")
+    elif euid != 0:
+        reason = ("this user lacks CAP_SYS_NICE and RLIMIT_RTPRIO is 0 — a normal user "
+                  "can't set RR/FIFO here; root (sudo) may be able to")
+    else:
+        reason = "real-time policies are not permitted here"
+
+    return {
+        "euid": euid, "is_root": euid == 0,
+        "cap_eff": cap_eff, "cap_bnd": cap_bnd,
+        "has_sys_nice": has_nice, "sys_nice_in_bounding": in_bounding,
+        "rtprio_soft": rtprio_soft, "rtprio_hard": rtprio_hard,
+        "rt_runtime_us": rt_runtime, "rt_disabled": rt_disabled,
+        "cgroup_rt_runtime_us": cgroup_rt, "cgroup_blocks": cgroup_blocks,
+        "cgroup_note": cgroup_note,
+        "allowed": allowed, "sudo_may_help": sudo_may_help,
+        "reason": reason,
+    }
 
 
 def read_stat(pid):
