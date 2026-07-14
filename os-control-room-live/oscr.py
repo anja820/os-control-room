@@ -26,6 +26,11 @@ import time
 import shutil
 from collections import deque
 
+try:
+    import readline  # enables arrow-key line editing + history at the prompt
+except ImportError:
+    pass
+
 import ui
 import procinfo as pi
 
